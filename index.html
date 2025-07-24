@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-    <title>QR & Barcode Scanner with Cropping</title>
+    <title>Advanced IMEI Scanner & Exporter</title>
     
     <!-- Tailwind CSS for styling -->
     <script src="https://cdn.tailwindcss.com"></script>
@@ -15,45 +15,50 @@
     <link href="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.5.13/cropper.min.css" rel="stylesheet">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.5.13/cropper.min.js"></script>
     
+    <!-- jsPDF for PDF Export -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.23/jspdf.plugin.autotable.min.js"></script>
+
     <!-- Font Awesome for icons -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     
     <style>
-        /* Using a common font for a clean look */
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
         body {
             font-family: 'Inter', sans-serif;
-            background-color: #f8fafc; /* slate-50 */
+            background-color: #f8fafc;
         }
-        /* Styling for the scanner/cropper container */
         #reader-container {
-            border: 2px solid #e2e8f0; /* slate-200 */
+            border: 2px solid #e2e8f0;
             border-radius: 8px;
-            background-color: #f1f5f9; /* slate-100 */
+            background-color: #f1f5f9;
             min-height: 300px;
             display: flex;
             align-items: center;
             justify-content: center;
         }
-        /* Ensure the Cropper.js image doesn't exceed the container */
         #image-to-crop {
             display: block;
             max-width: 100%;
         }
-        /* Simple animation for the modal */
-        #scannerModal {
+        .modal {
             transition: opacity 0.3s ease-in-out;
+        }
+        .modal-content {
+            transition: transform 0.3s ease-in-out;
         }
     </style>
 </head>
-<body class="min-h-screen flex items-center justify-center bg-slate-50">
+<body class="min-h-screen bg-slate-50 text-slate-800">
 
-    <div class="text-center p-8">
-        <h1 class="text-3xl md:text-4xl font-bold text-slate-800 mb-4">QR & Barcode Scanner</h1>
-        <p class="text-slate-500 mb-8">Scan using your camera or upload an image to crop and scan.</p>
+    <div class="container mx-auto p-4 md:p-8">
+        <div class="text-center mb-8">
+            <h1 class="text-3xl md:text-4xl font-bold text-slate-800 mb-2">Advanced IMEI Scanner</h1>
+            <p class="text-slate-500">Scan, name, and export your device IMEIs.</p>
+        </div>
 
-        <!-- Container for the action buttons -->
-        <div class="flex flex-col sm:flex-row justify-center gap-4">
+        <!-- Action Buttons -->
+        <div class="flex flex-col sm:flex-row justify-center gap-4 mb-8">
             <button id="startCameraScanBtn" class="bg-teal-600 hover:bg-teal-700 text-white font-bold py-3 px-6 rounded-lg shadow-md hover:shadow-lg transition-all duration-300 transform hover:-translate-y-1 flex items-center justify-center">
                 <i class="fas fa-camera mr-2"></i> Scan with Camera
             </button>
@@ -63,31 +68,48 @@
         </div>
         <input type="file" id="fileScannerInput" class="hidden" accept="image/*">
 
-        <!-- Area to display the result of the scan -->
-        <div id="scanResultContainer" class="mt-10 p-6 bg-white rounded-lg shadow-sm border border-slate-200 max-w-md mx-auto hidden">
-            <h2 class="text-lg font-semibold text-slate-700 mb-2">Scan Result:</h2>
-            <p id="scanResult" class="text-teal-600 font-mono bg-slate-100 p-3 rounded-md break-words"></p>
+        <!-- Scanned Items List -->
+        <div id="scannedItemsContainer" class="max-w-4xl mx-auto bg-white rounded-lg shadow-sm border border-slate-200 p-6">
+            <div class="flex justify-between items-center mb-4 border-b pb-3">
+                <h2 class="text-xl font-semibold">Scanned Items (<span id="itemCount">0</span>)</h2>
+                <div class="flex flex-wrap gap-2">
+                    <button id="sharePdfBtn" class="bg-green-600 hover:bg-green-700 text-white font-semibold py-2 px-4 rounded-lg transition text-sm disabled:bg-green-300 disabled:cursor-not-allowed">
+                        <i class="fas fa-share-alt mr-2"></i>Share
+                    </button>
+                    <button id="exportPdfBtn" class="bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 px-4 rounded-lg transition text-sm disabled:bg-blue-300 disabled:cursor-not-allowed">
+                        <i class="fas fa-file-pdf mr-2"></i>Export PDF
+                    </button>
+                    <button id="clearListBtn" class="bg-red-600 hover:bg-red-700 text-white font-semibold py-2 px-4 rounded-lg transition text-sm disabled:bg-red-300 disabled:cursor-not-allowed">
+                        <i class="fas fa-trash mr-2"></i>Clear List
+                    </button>
+                </div>
+            </div>
+            <div class="overflow-x-auto">
+                <table class="w-full text-sm text-left">
+                    <thead class="bg-slate-50 text-slate-600 uppercase">
+                        <tr>
+                            <th scope="col" class="px-6 py-3 rounded-l-lg">Product Name</th>
+                            <th scope="col" class="px-6 py-3">IMEI</th>
+                            <th scope="col" class="px-6 py-3 rounded-r-lg text-right">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="itemsTableBody">
+                        <!-- Items will be injected here -->
+                    </tbody>
+                </table>
+                <p id="noItemsText" class="text-center text-slate-500 py-8">No items scanned yet.</p>
+            </div>
         </div>
     </div>
 
-    <!-- Scanner & Cropper Modal -->
-    <div id="scannerModal" class="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center p-4 z-50 hidden">
-        <div class="bg-white rounded-lg shadow-xl w-full max-w-2xl p-6 relative">
+    <!-- All Modals -->
+    <!-- Scanner/Cropper Modal -->
+    <div id="scannerModal" class="modal fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center p-4 z-50 hidden">
+        <div class="modal-content bg-white rounded-lg shadow-xl w-full max-w-2xl p-6 relative transform scale-95">
             <button id="closeScannerBtn" class="absolute top-4 right-4 text-slate-400 hover:text-slate-600 text-3xl font-bold z-10">&times;</button>
-            
-            <div class="flex justify-between items-center mb-4">
-                <h3 id="modalTitle" class="text-xl font-bold text-slate-800">Scan Code</h3>
-            </div>
-            
-            <div id="reader-container">
-                <!-- This div will hold either the camera feed or the image for cropping -->
-                <div id="qr-reader" class="w-full"></div>
-            </div>
-            
-            <!-- Status message area -->
+            <h3 id="modalTitle" class="text-xl font-bold text-slate-800 mb-4">Scan Code</h3>
+            <div id="reader-container"><div id="qr-reader" class="w-full"></div></div>
             <p id="scannerStatus" class="text-center text-sm text-slate-600 mt-4 h-5"></p>
-            
-            <!-- Button specific to cropping -->
             <div id="crop-actions" class="text-center mt-4 hidden">
                  <button id="scanCroppedBtn" class="bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-5 rounded-lg shadow-md transition-all">
                     <i class="fas fa-check mr-2"></i> Scan Cropped Area
@@ -96,142 +118,373 @@
         </div>
     </div>
 
+    <!-- Scan Mode Choice Modal -->
+    <div id="scanModeModal" class="modal fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center p-4 z-[60] hidden">
+         <div class="modal-content bg-white rounded-lg shadow-xl w-full max-w-sm p-6 text-center transform scale-95">
+            <h3 class="text-xl font-bold text-slate-800 mb-4">Choose Scan Mode</h3>
+            <p class="text-slate-500 mb-6">How do you want to scan the image?</p>
+            <div class="flex flex-col gap-3">
+                <button id="modeBulkBtn" class="w-full bg-purple-600 hover:bg-purple-700 text-white font-bold py-3 px-6 rounded-lg">Bulk Scan (Find all IMEI 1s)</button>
+                <button id="modeSingleBtn" class="w-full bg-cyan-600 hover:bg-cyan-700 text-white font-bold py-3 px-6 rounded-lg">Single Scan (Crop Tool)</button>
+            </div>
+             <button id="closeModeBtn" class="mt-4 text-slate-500 hover:text-slate-700 text-sm">Cancel</button>
+        </div>
+    </div>
+    
+    <!-- Assign Name Modal -->
+    <div id="assignNameModal" class="modal fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center p-4 z-[70] hidden">
+        <div class="modal-content bg-white rounded-lg shadow-xl w-full max-w-sm p-6 transform scale-95">
+            <h3 class="text-xl font-bold text-slate-800 mb-2">Assign Name</h3>
+            <p class="text-slate-500 mb-4">Enter a name for the scanned IMEI.</p>
+            <p class="font-mono bg-slate-100 p-2 rounded text-center mb-4" id="imeiToName"></p>
+            <input type="text" id="itemNameInput" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500" placeholder="e.g., Samsung A55 Black">
+            <div class="flex justify-end gap-3 mt-4">
+                <button id="cancelNameBtn" class="bg-slate-200 hover:bg-slate-300 text-slate-800 font-bold py-2 px-4 rounded-lg">Cancel</button>
+                <button id="saveNameBtn" class="bg-teal-600 hover:bg-teal-700 text-white font-bold py-2 px-4 rounded-lg">Save</button>
+            </div>
+        </div>
+    </div>
+
     <script>
     document.addEventListener('DOMContentLoaded', function() {
-        // --- DOM Element References ---
-        const startCameraScanBtn = document.getElementById('startCameraScanBtn');
-        const startFileScanBtn = document.getElementById('startFileScanBtn');
-        const fileScannerInput = document.getElementById('fileScannerInput');
-        const scannerModal = document.getElementById('scannerModal');
-        const closeScannerBtn = document.getElementById('closeScannerBtn');
-        const scannerStatus = document.getElementById('scannerStatus');
-        const modalTitle = document.getElementById('modalTitle');
-        const scanResultContainer = document.getElementById('scanResultContainer');
-        const scanResult = document.getElementById('scanResult');
-        const qrReader = document.getElementById('qr-reader');
-        const cropActions = document.getElementById('crop-actions');
-        const scanCroppedBtn = document.getElementById('scanCroppedBtn');
-
-        // --- State Variables ---
+        // --- GLOBAL STATE & REFERENCES ---
+        let scannedItems = [];
         let html5QrCode = null;
         let cropper = null;
+        let currentFile = null;
+        let itemToEditId = null;
 
-        // --- Event Listeners ---
-        startCameraScanBtn.addEventListener('click', startCameraScanner);
-        startFileScanBtn.addEventListener('click', () => fileScannerInput.click());
-        fileScannerInput.addEventListener('change', handleFileSelect);
-        closeScannerBtn.addEventListener('click', stopAll);
-        scanCroppedBtn.addEventListener('click', scanCroppedImage);
+        const { jsPDF } = window.jspdf;
 
-        /**
-         * Initializes the Html5Qrcode scanner instance if it doesn't exist.
-         */
+        // --- DOM ELEMENT REFERENCES ---
+        const elements = {
+            startCameraScanBtn: document.getElementById('startCameraScanBtn'),
+            startFileScanBtn: document.getElementById('startFileScanBtn'),
+            fileScannerInput: document.getElementById('fileScannerInput'),
+            // Modals
+            scannerModal: document.getElementById('scannerModal'),
+            scanModeModal: document.getElementById('scanModeModal'),
+            assignNameModal: document.getElementById('assignNameModal'),
+            // Scanner/Cropper Modal Elements
+            closeScannerBtn: document.getElementById('closeScannerBtn'),
+            modalTitle: document.getElementById('modalTitle'),
+            qrReader: document.getElementById('qr-reader'),
+            scannerStatus: document.getElementById('scannerStatus'),
+            cropActions: document.getElementById('crop-actions'),
+            scanCroppedBtn: document.getElementById('scanCroppedBtn'),
+            // Scan Mode Modal Elements
+            modeBulkBtn: document.getElementById('modeBulkBtn'),
+            modeSingleBtn: document.getElementById('modeSingleBtn'),
+            closeModeBtn: document.getElementById('closeModeBtn'),
+            // Assign Name Modal Elements
+            imeiToName: document.getElementById('imeiToName'),
+            itemNameInput: document.getElementById('itemNameInput'),
+            saveNameBtn: document.getElementById('saveNameBtn'),
+            cancelNameBtn: document.getElementById('cancelNameBtn'),
+            // Main Page List Elements
+            itemsTableBody: document.getElementById('itemsTableBody'),
+            itemCount: document.getElementById('itemCount'),
+            noItemsText: document.getElementById('noItemsText'),
+            exportPdfBtn: document.getElementById('exportPdfBtn'),
+            clearListBtn: document.getElementById('clearListBtn'),
+            sharePdfBtn: document.getElementById('sharePdfBtn'),
+        };
+
+        // --- MODAL HELPER FUNCTIONS ---
+        function openModal(modal) {
+            modal.classList.remove('hidden');
+            setTimeout(() => {
+                modal.classList.remove('opacity-0');
+                modal.querySelector('.modal-content').classList.replace('scale-95', 'scale-100');
+            }, 10);
+        }
+
+        function closeModal(modal) {
+            modal.classList.add('opacity-0');
+            modal.querySelector('.modal-content').classList.replace('scale-100', 'scale-95');
+            setTimeout(() => modal.classList.add('hidden'), 300);
+        }
+
+        // --- DATA & UI LOGIC ---
+        function renderItems() {
+            elements.itemsTableBody.innerHTML = '';
+            if (scannedItems.length === 0) {
+                elements.noItemsText.classList.remove('hidden');
+                elements.itemsTableBody.classList.add('hidden');
+            } else {
+                elements.noItemsText.classList.add('hidden');
+                elements.itemsTableBody.classList.remove('hidden');
+                scannedItems.forEach(item => {
+                    const row = document.createElement('tr');
+                    row.className = 'bg-white border-b';
+                    row.innerHTML = `
+                        <td class="px-6 py-4 font-medium text-gray-900 whitespace-nowrap">${item.name}</td>
+                        <td class="px-6 py-4 font-mono">${item.imei}</td>
+                        <td class="px-6 py-4 text-right">
+                            <button class="edit-btn text-blue-600 hover:text-blue-800 mr-4" data-id="${item.id}"><i class="fas fa-edit"></i></button>
+                            <button class="delete-btn text-red-600 hover:text-red-800" data-id="${item.id}"><i class="fas fa-trash"></i></button>
+                        </td>
+                    `;
+                    elements.itemsTableBody.appendChild(row);
+                });
+            }
+            elements.itemCount.textContent = scannedItems.length;
+            updateButtonStates();
+        }
+
+        function saveToStorage() {
+            localStorage.setItem('scannedImeis', JSON.stringify(scannedItems));
+        }
+
+        function loadFromStorage() {
+            const stored = localStorage.getItem('scannedImeis');
+            if (stored) {
+                scannedItems = JSON.parse(stored);
+                renderItems();
+            }
+        }
+        
+        function updateButtonStates() {
+            const hasItems = scannedItems.length > 0;
+            elements.exportPdfBtn.disabled = !hasItems;
+            elements.clearListBtn.disabled = !hasItems;
+            
+            // Check for Web Share API support for files
+            const canShareFiles = navigator.share && navigator.canShare && navigator.canShare({ files: [new File([], 'test.pdf', { type: 'application/pdf' })] });
+            elements.sharePdfBtn.disabled = !hasItems || !canShareFiles;
+        }
+
+        function addItem(imei, name = 'Unnamed Device') {
+            // Prevent duplicate IMEIs
+            if (scannedItems.some(item => item.imei === imei)) {
+                console.warn(`Duplicate IMEI ignored: ${imei}`);
+                return;
+            }
+            const newItem = { id: Date.now(), name, imei };
+            scannedItems.push(newItem);
+            saveToStorage();
+            renderItems();
+        }
+
+        function handleItemAction(e) {
+            const target = e.target.closest('button');
+            if (!target) return;
+            const id = Number(target.dataset.id);
+
+            if (target.classList.contains('edit-btn')) {
+                const item = scannedItems.find(i => i.id === id);
+                if (item) {
+                    itemToEditId = id;
+                    elements.imeiToName.textContent = item.imei;
+                    elements.itemNameInput.value = item.name;
+                    openModal(elements.assignNameModal);
+                }
+            } else if (target.classList.contains('delete-btn')) {
+                if (confirm('Are you sure you want to delete this item?')) {
+                    scannedItems = scannedItems.filter(i => i.id !== id);
+                    saveToStorage();
+                    renderItems();
+                }
+            }
+        }
+
+        // --- SCANNING & CROPPING LOGIC ---
         function initializeScanner() {
             if (!html5QrCode) {
                 html5QrCode = new Html5Qrcode("qr-reader");
             }
         }
 
-        /**
-         * Handles successful scan results.
-         */
-        function onScanSuccess(decodedText, decodedResult) {
-            scanResult.textContent = decodedText;
-            scanResultContainer.classList.remove('hidden');
-            scannerStatus.textContent = `Success!`;
-            setTimeout(stopAll, 1000);
+        function onScanSuccess(decodedText) {
+            stopAllScanners();
+            itemToEditId = null; // It's a new item, not an edit
+            elements.imeiToName.textContent = decodedText;
+            elements.itemNameInput.value = '';
+            openModal(elements.assignNameModal);
         }
 
-        /**
-         * Handles the selection of a file for cropping and scanning.
-         */
         function handleFileSelect(e) {
-            const file = e.target.files[0];
-            if (!file) return;
+            currentFile = e.target.files[0];
+            if (!currentFile) return;
+            openModal(elements.scanModeModal);
+        }
 
+        function startSingleMode() {
+            closeModal(elements.scanModeModal);
             const reader = new FileReader();
             reader.onload = function(event) {
-                // Prepare the modal for cropping
-                modalTitle.textContent = "Crop to Scan";
-                qrReader.innerHTML = `<img id="image-to-crop" src="${event.target.result}">`;
-                scannerModal.classList.remove('hidden');
-                cropActions.classList.remove('hidden');
-
+                elements.modalTitle.textContent = "Crop to Scan";
+                elements.qrReader.innerHTML = `<img id="image-to-crop" src="${event.target.result}">`;
+                elements.cropActions.classList.remove('hidden');
+                openModal(elements.scannerModal);
                 const image = document.getElementById('image-to-crop');
-                // Initialize Cropper.js
-                cropper = new Cropper(image, {
-                    aspectRatio: 0, // Free crop ratio
-                    viewMode: 1,    // Restrict crop box to be within the canvas
-                    background: false,
-                });
+                cropper = new Cropper(image, { aspectRatio: 0, viewMode: 1, background: false });
             };
-            reader.readAsDataURL(file);
+            reader.readAsDataURL(currentFile);
+        }
+        
+        async function performAIBulkScan(file) {
+            elements.modalTitle.textContent = "AI Bulk Scan";
+            elements.scannerStatus.innerHTML = 'Simulating AI scan to find all "IMEI 1" codes...';
+            openModal(elements.scannerModal);
+            await new Promise(resolve => setTimeout(resolve, 2500));
+            return {
+                success: true,
+                data: [
+                    { name: "SM-A055F/DS", imei1: "355234853489579" },
+                    { name: "SM-A055F/DS", imei1: "355234853489579" },
+                    { name: "SM-A055F/DS", imei1: "355234853489579" }
+                ]
+            };
         }
 
-        /**
-         * Scans the area of the image selected with the cropper tool.
-         */
+        async function startBulkMode() {
+            closeModal(elements.scanModeModal);
+            const result = await performAIBulkScan(currentFile);
+            
+            if (result.success && result.data.length > 0) {
+                result.data.forEach(item => {
+                    addItem(item.imei1, item.name);
+                });
+                elements.scannerStatus.textContent = `Success! Added ${result.data.length} items.`;
+            } else {
+                elements.scannerStatus.textContent = 'AI Scan failed or no IMEI 1s found.';
+            }
+            setTimeout(stopAllScanners, 2000);
+        }
+
         function scanCroppedImage() {
             if (!cropper) return;
-
-            scannerStatus.textContent = "Processing cropped image...";
-            // Get the cropped image data as a canvas
-            const canvas = cropper.getCroppedCanvas();
-            // Convert canvas to a Blob
-            canvas.toBlob(function(blob) {
+            elements.scannerStatus.textContent = "Processing cropped image...";
+            cropper.getCroppedCanvas().toBlob(function(blob) {
                 const file = new File([blob], "cropped.png", { type: 'image/png' });
                 initializeScanner();
-                // Use the scanner library to scan the new cropped file
-                html5QrCode.scanFile(file, false) // false = don't show the image again
+                html5QrCode.scanFile(file, false)
                     .then(onScanSuccess)
                     .catch(err => {
-                        scannerStatus.textContent = `Error: No code found in selection.`;
+                        elements.scannerStatus.textContent = `Error: No code found in selection.`;
                     });
             });
         }
 
-        /**
-         * Starts the live camera scanner.
-         */
         function startCameraScanner() {
             initializeScanner();
-            modalTitle.textContent = "Scan with Camera";
-            scannerModal.classList.remove('hidden');
-            scannerStatus.textContent = "Requesting camera access...";
-
+            elements.modalTitle.textContent = "Scan with Camera";
+            openModal(elements.scannerModal);
+            elements.scannerStatus.textContent = "Requesting camera access...";
             const config = { fps: 10, qrbox: { width: 250, height: 150 } };
             html5QrCode.start({ facingMode: "environment" }, config, onScanSuccess, () => {})
-                .then(() => {
-                    scannerStatus.textContent = "Point camera at a QR code or barcode";
-                })
                 .catch(err => {
-                    scannerStatus.textContent = `Error: ${err.message}`;
+                    elements.scannerStatus.textContent = `Error: ${err.message}`;
                 });
         }
 
-        /**
-         * Stops all processes (camera or cropper) and resets the UI.
-         */
-        function stopAll() {
-            // Stop camera scanner if it's running
+        function stopAllScanners() {
             if (html5QrCode && html5QrCode.isScanning) {
                 html5QrCode.stop().catch(err => console.error("Error stopping scanner.", err));
             }
-            // Destroy cropper instance if it exists
             if (cropper) {
                 cropper.destroy();
                 cropper = null;
             }
-            
-            // Reset and hide the modal and related elements
-            scannerModal.classList.add('hidden');
-            cropActions.classList.add('hidden');
-            qrReader.innerHTML = "";
-            scannerStatus.textContent = "";
-            fileScannerInput.value = ''; // Allow selecting the same file again
+            closeModal(elements.scannerModal);
+            elements.cropActions.classList.add('hidden');
+            elements.qrReader.innerHTML = "";
+            elements.scannerStatus.textContent = "";
+            elements.fileScannerInput.value = '';
         }
+        
+        function handleSaveName() {
+            const name = elements.itemNameInput.value.trim();
+            const imei = elements.imeiToName.textContent;
+            if (!name) {
+                alert('Please enter a name.');
+                return;
+            }
+            if (itemToEditId) {
+                const item = scannedItems.find(i => i.id === itemToEditId);
+                if (item) item.name = name;
+            } else {
+                addItem(imei, name);
+            }
+            saveToStorage();
+            renderItems();
+            closeModal(elements.assignNameModal);
+        }
+        
+        function generatePdfBlob() {
+            const doc = new jsPDF();
+            doc.text("Scanned IMEI List", 14, 16);
+            doc.autoTable({
+                head: [['Product Name', 'IMEI']],
+                body: scannedItems.map(item => [item.name, item.imei]),
+                startY: 20,
+            });
+            return doc.output('blob');
+        }
+
+        function exportToPdf() {
+            const pdfBlob = generatePdfBlob();
+            const url = URL.createObjectURL(pdfBlob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'scanned-imeis.pdf';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        }
+        
+        async function sharePdf() {
+            const pdfBlob = generatePdfBlob();
+            const pdfFile = new File([pdfBlob], 'scanned-imeis.pdf', { type: 'application/pdf' });
+            
+            if (navigator.canShare && navigator.canShare({ files: [pdfFile] })) {
+                try {
+                    await navigator.share({
+                        title: 'Scanned IMEI List',
+                        text: 'Here is the list of scanned IMEIs.',
+                        files: [pdfFile],
+                    });
+                } catch (error) {
+                    console.error('Error sharing PDF:', error);
+                    alert('Could not share the file. Error: ' + error.message);
+                }
+            } else {
+                alert('Sharing files is not supported on this browser.');
+            }
+        }
+
+        function clearList() {
+            if (confirm('Are you sure you want to clear the entire list? This cannot be undone.')) {
+                scannedItems = [];
+                saveToStorage();
+                renderItems();
+            }
+        }
+
+        // --- EVENT LISTENERS ---
+        elements.startCameraScanBtn.addEventListener('click', startCameraScanner);
+        elements.startFileScanBtn.addEventListener('click', () => elements.fileScannerInput.click());
+        elements.fileScannerInput.addEventListener('change', handleFileSelect);
+        elements.closeScannerBtn.addEventListener('click', stopAllScanners);
+        elements.scanCroppedBtn.addEventListener('click', scanCroppedImage);
+        elements.itemsTableBody.addEventListener('click', handleItemAction);
+        // Scan Mode Modal
+        elements.modeBulkBtn.addEventListener('click', startBulkMode);
+        elements.modeSingleBtn.addEventListener('click', startSingleMode);
+        elements.closeModeBtn.addEventListener('click', () => closeModal(elements.scanModeModal));
+        // Assign Name Modal
+        elements.saveNameBtn.addEventListener('click', handleSaveName);
+        elements.cancelNameBtn.addEventListener('click', () => closeModal(elements.assignNameModal));
+        // Main page buttons
+        elements.exportPdfBtn.addEventListener('click', exportToPdf);
+        elements.clearListBtn.addEventListener('click', clearList);
+        elements.sharePdfBtn.addEventListener('click', sharePdf);
+
+        // --- INITIALIZATION ---
+        loadFromStorage();
     });
     </script>
-
 </body>
 </html>
