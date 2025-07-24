@@ -145,6 +145,24 @@
         </div>
     </div>
 
+    <!-- Bulk Assign Modal -->
+    <div id="bulkAssignModal" class="modal fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center p-4 z-[70] hidden">
+        <div class="modal-content bg-white rounded-lg shadow-xl w-full max-w-lg p-6 transform scale-95">
+            <h3 class="text-xl font-bold text-slate-800 mb-4">Bulk Scan Results</h3>
+            <div class="mb-4">
+                <label for="bulkAssignName" class="block text-sm font-medium text-gray-700 mb-1">Assign All To (Optional)</label>
+                <input type="text" id="bulkAssignName" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500" placeholder="e.g., Main Stock">
+            </div>
+            <div id="bulkItemsList" class="space-y-2 max-h-60 overflow-y-auto border p-3 rounded-lg bg-slate-50">
+                <!-- Bulk items will be injected here -->
+            </div>
+            <div class="flex justify-end gap-3 mt-4">
+                <button id="cancelBulkBtn" class="bg-slate-200 hover:bg-slate-300 text-slate-800 font-bold py-2 px-4 rounded-lg">Cancel</button>
+                <button id="saveBulkBtn" class="bg-purple-600 hover:bg-purple-700 text-white font-bold py-2 px-4 rounded-lg">Save All</button>
+            </div>
+        </div>
+    </div>
+
     <script>
     document.addEventListener('DOMContentLoaded', function() {
         // --- GLOBAL STATE & REFERENCES ---
@@ -165,6 +183,7 @@
             scannerModal: document.getElementById('scannerModal'),
             scanModeModal: document.getElementById('scanModeModal'),
             assignNameModal: document.getElementById('assignNameModal'),
+            bulkAssignModal: document.getElementById('bulkAssignModal'),
             // Scanner/Cropper Modal Elements
             closeScannerBtn: document.getElementById('closeScannerBtn'),
             modalTitle: document.getElementById('modalTitle'),
@@ -181,6 +200,11 @@
             itemNameInput: document.getElementById('itemNameInput'),
             saveNameBtn: document.getElementById('saveNameBtn'),
             cancelNameBtn: document.getElementById('cancelNameBtn'),
+            // Bulk Assign Modal Elements
+            bulkAssignName: document.getElementById('bulkAssignName'),
+            bulkItemsList: document.getElementById('bulkItemsList'),
+            saveBulkBtn: document.getElementById('saveBulkBtn'),
+            cancelBulkBtn: document.getElementById('cancelBulkBtn'),
             // Main Page List Elements
             itemsTableBody: document.getElementById('itemsTableBody'),
             itemCount: document.getElementById('itemCount'),
@@ -255,11 +279,11 @@
         function addItem(imei, name = 'Unnamed') {
             if (scannedItems.some(item => item.imei === imei)) {
                 console.warn(`Duplicate IMEI ignored: ${imei}`);
-                return false; // Indicate that item was not added
+                return false;
             }
             const newItem = { id: Date.now(), name, imei };
             scannedItems.push(newItem);
-            return true; // Indicate success
+            return true;
         }
 
         function handleItemAction(e) {
@@ -284,9 +308,9 @@
             }
         }
 
-        // --- SCANNING & CROPPING LOGIC ---
+        // --- SCANNING & STATE MANAGEMENT ---
         function onScanSuccess(decodedText) {
-            stopAllScanners().then(() => {
+            closeAndResetAll().then(() => {
                 itemToEditId = null;
                 elements.imeiToName.textContent = decodedText;
                 elements.itemNameInput.value = '';
@@ -316,38 +340,31 @@
         }
         
         async function performAIBulkScan(file) {
+            closeModal(elements.scanModeModal);
             elements.modalTitle.textContent = "AI Bulk Scan";
             elements.scannerStatus.innerHTML = 'Simulating AI scan to find all "IMEI 1" codes...';
             openModal(elements.scannerModal);
             await new Promise(resolve => setTimeout(resolve, 2500));
-            // MOCK AI RESPONSE with UNIQUE IMEIs
             return {
                 success: true,
                 data: [
-                    { name: "Unnamed", imei1: "355234853489579" },
-                    { name: "Unnamed", imei1: "358585943489573" },
-                    { name: "Unnamed", imei1: "355234853489578" } // Made this one unique
+                    { imei: "355234853489579" },
+                    { imei: "358585943489573" },
+                    { imei: "355234853489578" } // Unique IMEI
                 ]
             };
         }
 
         async function startBulkMode() {
-            closeModal(elements.scanModeModal);
             const result = await performAIBulkScan(currentFile);
-            let itemsAddedCount = 0;
-            if (result.success && result.data.length > 0) {
-                result.data.forEach(item => {
-                    if (addItem(item.imei1, item.name)) {
-                        itemsAddedCount++;
-                    }
-                });
-                saveToStorage();
-                renderItems();
-                elements.scannerStatus.textContent = `Success! Added ${itemsAddedCount} new items.`;
-            } else {
-                elements.scannerStatus.textContent = 'AI Scan failed or no new IMEI 1s found.';
-            }
-            setTimeout(stopAllScanners, 2000);
+            closeAndResetAll().then(() => {
+                 if (result.success && result.data.length > 0) {
+                    populateBulkAssignModal(result.data);
+                    openModal(elements.bulkAssignModal);
+                } else {
+                    alert('AI Scan failed or no IMEI 1s found.');
+                }
+            });
         }
 
         function scanCroppedImage() {
@@ -355,7 +372,7 @@
             elements.scannerStatus.textContent = "Processing cropped image...";
             cropper.getCroppedCanvas().toBlob(function(blob) {
                 const file = new File([blob], "cropped.png", { type: 'image/png' });
-                const scanner = new Html5Qrcode("qr-reader");
+                const scanner = new Html5Qrcode("qr-reader"); // Use a temporary instance
                 scanner.scanFile(file, false)
                     .then(onScanSuccess)
                     .catch(err => {
@@ -365,7 +382,7 @@
         }
 
         function startCameraScanner() {
-            stopAllScanners().then(() => {
+            closeAndResetAll().then(() => {
                 html5QrCode = new Html5Qrcode("qr-reader");
                 elements.modalTitle.textContent = "Scan with Camera";
                 openModal(elements.scannerModal);
@@ -378,7 +395,7 @@
             });
         }
 
-        function stopAllScanners() {
+        function closeAndResetAll() {
             return new Promise((resolve) => {
                 const cleanup = () => {
                     if (cropper) {
@@ -390,7 +407,7 @@
                     elements.qrReader.innerHTML = "";
                     elements.scannerStatus.textContent = "";
                     elements.fileScannerInput.value = '';
-                    html5QrCode = null; // Reset the scanner instance
+                    html5QrCode = null;
                     resolve();
                 };
 
@@ -406,12 +423,9 @@
         }
         
         function handleSaveName() {
-            const name = elements.itemNameInput.value.trim();
+            const name = elements.itemNameInput.value.trim() || 'Unnamed';
             const imei = elements.imeiToName.textContent;
-            if (!name) {
-                alert('Please enter a name.');
-                return;
-            }
+            
             if (itemToEditId) {
                 const item = scannedItems.find(i => i.id === itemToEditId);
                 if (item) item.name = name;
@@ -423,6 +437,45 @@
             closeModal(elements.assignNameModal);
         }
         
+        // --- BULK ASSIGN LOGIC ---
+        function populateBulkAssignModal(items) {
+            elements.bulkItemsList.innerHTML = '';
+            items.forEach(item => {
+                const div = document.createElement('div');
+                div.className = 'flex items-center gap-2';
+                div.innerHTML = `
+                    <span class="font-mono text-sm flex-shrink-0">${item.imei}</span>
+                    <input type="text" class="bulk-name-input w-full px-2 py-1 border border-gray-300 rounded-md text-sm" data-imei="${item.imei}" placeholder="Assignee name...">
+                `;
+                elements.bulkItemsList.appendChild(div);
+            });
+        }
+
+        function handleBulkAssignNameChange() {
+            const masterName = elements.bulkAssignName.value;
+            document.querySelectorAll('.bulk-name-input').forEach(input => {
+                input.value = masterName;
+            });
+        }
+
+        function handleSaveBulk() {
+            let itemsAddedCount = 0;
+            document.querySelectorAll('.bulk-name-input').forEach(input => {
+                const imei = input.dataset.imei;
+                const name = input.value.trim() || 'Unnamed';
+                if (addItem(imei, name)) {
+                    itemsAddedCount++;
+                }
+            });
+            if (itemsAddedCount > 0) {
+                saveToStorage();
+                renderItems();
+            }
+            alert(`Added ${itemsAddedCount} new items to the list.`);
+            closeModal(elements.bulkAssignModal);
+        }
+        
+        // --- PDF & SHARING ---
         function generatePdfBlob() {
             const doc = new jsPDF();
             doc.text("Scanned IMEI List", 14, 16);
@@ -458,7 +511,6 @@
                         files: [pdfFile],
                     });
                 } catch (error) {
-                    console.error('Error sharing PDF:', error);
                     if (error.name !== 'AbortError') {
                        alert('Could not share the file. Error: ' + error.message);
                     }
@@ -480,7 +532,7 @@
         elements.startCameraScanBtn.addEventListener('click', startCameraScanner);
         elements.startFileScanBtn.addEventListener('click', () => elements.fileScannerInput.click());
         elements.fileScannerInput.addEventListener('change', handleFileSelect);
-        elements.closeScannerBtn.addEventListener('click', stopAllScanners);
+        elements.closeScannerBtn.addEventListener('click', closeAndResetAll);
         elements.scanCroppedBtn.addEventListener('click', scanCroppedImage);
         elements.itemsTableBody.addEventListener('click', handleItemAction);
         // Scan Mode Modal
@@ -490,6 +542,10 @@
         // Assign Name Modal
         elements.saveNameBtn.addEventListener('click', handleSaveName);
         elements.cancelNameBtn.addEventListener('click', () => closeModal(elements.assignNameModal));
+        // Bulk Assign Modal
+        elements.bulkAssignName.addEventListener('input', handleBulkAssignNameChange);
+        elements.saveBulkBtn.addEventListener('click', handleSaveBulk);
+        elements.cancelBulkBtn.addEventListener('click', () => closeModal(elements.bulkAssignModal));
         // Main page buttons
         elements.exportPdfBtn.addEventListener('click', exportToPdf);
         elements.clearListBtn.addEventListener('click', clearList);
