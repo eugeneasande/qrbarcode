@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <title>QR & Barcode Scanner</title>
+    
+    <!-- Tailwind CSS for styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Barcode Scanner Library -->
+    <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
+    
+    <!-- Font Awesome for icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <style>
+        /* Using a common font for a clean look */
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f8fafc; /* slate-50 */
+        }
+        /* Style for the video feed container to ensure the border is visible */
+        #qr-reader {
+            border: 2px solid #e2e8f0; /* slate-200 */
+            border-radius: 8px;
+            /* Ensure the uploaded image is contained within the reader element */
+            background-color: #f1f5f9; /* slate-100 */
+        }
+        #qr-reader img {
+            max-width: 100%;
+            max-height: 100%;
+            object-fit: contain;
+        }
+        /* Simple animation for the modal */
+        #scannerModal {
+            transition: opacity 0.3s ease-in-out;
+        }
+    </style>
+</head>
+<body class="min-h-screen flex items-center justify-center bg-slate-50">
+
+    <div class="text-center p-8">
+        <h1 class="text-3xl md:text-4xl font-bold text-slate-800 mb-4">QR & Barcode Scanner</h1>
+        <p class="text-slate-500 mb-8">Scan a QR code or barcode using your camera or by uploading an image.</p>
+
+        <!-- Container for the action buttons -->
+        <div class="flex flex-col sm:flex-row justify-center gap-4">
+            <!-- Button to open the camera scanner -->
+            <button id="startCameraScanBtn" class="bg-teal-600 hover:bg-teal-700 text-white font-bold py-3 px-6 rounded-lg shadow-md hover:shadow-lg transition-all duration-300 transform hover:-translate-y-1 flex items-center justify-center">
+                <i class="fas fa-camera mr-2"></i> Scan with Camera
+            </button>
+            <!-- Button to trigger file upload -->
+            <button id="startFileScanBtn" class="bg-sky-600 hover:bg-sky-700 text-white font-bold py-3 px-6 rounded-lg shadow-md hover:shadow-lg transition-all duration-300 transform hover:-translate-y-1 flex items-center justify-center">
+                <i class="fas fa-image mr-2"></i> Scan from Image
+            </button>
+        </div>
+        <!-- Hidden file input that will be triggered by the button -->
+        <input type="file" id="fileScannerInput" class="hidden" accept="image/*">
+
+        <!-- Area to display the result of the scan -->
+        <div id="scanResultContainer" class="mt-10 p-6 bg-white rounded-lg shadow-sm border border-slate-200 max-w-md mx-auto hidden">
+            <h2 class="text-lg font-semibold text-slate-700 mb-2">Scan Result:</h2>
+            <p id="scanResult" class="text-teal-600 font-mono bg-slate-100 p-3 rounded-md break-words"></p>
+        </div>
+    </div>
+
+    <!-- Barcode Scanner Modal -->
+    <div id="scannerModal" class="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center p-4 z-50 hidden">
+        <div class="bg-white rounded-lg shadow-xl w-full max-w-lg p-6 relative">
+            <!-- Close button for the modal -->
+            <button id="closeScannerBtn" class="absolute top-4 right-4 text-slate-400 hover:text-slate-600 text-3xl font-bold">&times;</button>
+            
+            <div class="flex justify-between items-center mb-4">
+                <h3 id="modalTitle" class="text-xl font-bold text-slate-800">Scan Code</h3>
+            </div>
+            
+            <!-- Container for the camera feed or uploaded image -->
+            <div id="qr-reader-container" class="w-full">
+                <div id="qr-reader"></div>
+            </div>
+            
+            <!-- Status message area -->
+            <p id="scannerStatus" class="text-center text-sm text-slate-600 mt-4 h-5"></p>
+        </div>
+    </div>
+
+    <script>
+    document.addEventListener('DOMContentLoaded', function() {
+        // --- DOM Element References ---
+        const startCameraScanBtn = document.getElementById('startCameraScanBtn');
+        const startFileScanBtn = document.getElementById('startFileScanBtn');
+        const fileScannerInput = document.getElementById('fileScannerInput');
+        const scannerModal = document.getElementById('scannerModal');
+        const closeScannerBtn = document.getElementById('closeScannerBtn');
+        const scannerStatus = document.getElementById('scannerStatus');
+        const modalTitle = document.getElementById('modalTitle');
+        const scanResultContainer = document.getElementById('scanResultContainer');
+        const scanResult = document.getElementById('scanResult');
+        const qrReader = document.getElementById('qr-reader');
+        
+        // --- Scanner Instance ---
+        // This creates a new instance of the barcode scanner
+        const html5QrCode = new Html5Qrcode("qr-reader");
+
+        // --- Event Listeners ---
+        startCameraScanBtn.addEventListener('click', startCameraScanner);
+        startFileScanBtn.addEventListener('click', () => fileScannerInput.click());
+        fileScannerInput.addEventListener('change', handleFileSelect);
+        closeScannerBtn.addEventListener('click', stopScanner);
+
+        /**
+         * This function is called when a barcode is successfully scanned.
+         * @param {string} decodedText - The text decoded from the barcode.
+         * @param {object} decodedResult - The full result object from the scanner library.
+         */
+        function onScanSuccess(decodedText, decodedResult) {
+            scanResult.textContent = decodedText;
+            scanResultContainer.classList.remove('hidden');
+            scannerStatus.textContent = `Success!`;
+            
+            // Stop the scanner and close the modal after a short delay
+            setTimeout(() => {
+                stopScanner();
+            }, 1000);
+        }
+
+        /**
+         * This function handles the file selection for image-based scanning.
+         * @param {Event} e - The file input change event.
+         */
+        function handleFileSelect(e) {
+            const file = e.target.files[0];
+            if (!file) {
+                return;
+            }
+            
+            // Show the modal and set the title for image scanning
+            scannerModal.classList.remove('hidden');
+            modalTitle.textContent = "Scanning Image";
+            scannerStatus.textContent = "Processing image...";
+
+            // Use the scanFile method from the library
+            html5QrCode.scanFile(file, true) // true = show the image in the reader
+            .then(onScanSuccess)
+            .catch(err => {
+                // Handle errors, like no barcode being found
+                scannerStatus.textContent = `Error: ${err.message || 'No QR code or barcode found.'}`;
+                console.error(`Error scanning file. ${err}`);
+                // Close the modal after a delay so the user can read the error
+                setTimeout(() => {
+                    stopScanner();
+                }, 2500);
+            });
+        }
+
+        /**
+         * Starts the live camera barcode scanner.
+         */
+        function startCameraScanner() {
+            // Show the modal and set the title for camera scanning
+            scannerModal.classList.remove('hidden');
+            modalTitle.textContent = "Scan with Camera";
+            scannerStatus.textContent = "Requesting camera access...";
+
+            // Configuration for the scanner
+            const config = { 
+                fps: 10, // Frames per second to scan
+                qrbox: { width: 250, height: 150 } // The scanning box dimensions
+            };
+
+            // Start the scanner using the device's rear camera
+            html5QrCode.start(
+                { facingMode: "environment" }, // Use 'user' for front camera
+                config,
+                onScanSuccess,
+                (errorMessage) => { /* Be quiet on non-fatal scan failures */ }
+            ).then(() => {
+                scannerStatus.textContent = "Point camera at a QR code or barcode";
+            }).catch(err => {
+                // Handle critical errors like camera not found or permissions denied
+                scannerStatus.textContent = `Error: ${err.message}`;
+                console.error("Could not start camera scanner", err);
+            });
+        }
+
+        /**
+         * Stops any active scanner and hides the modal.
+         */
+        function stopScanner() {
+            // Check if the scanner is running before trying to stop it
+            if (html5QrCode.isScanning) {
+                html5QrCode.stop().catch(err => {
+                    console.error("Failed to stop scanner cleanly.", err);
+                });
+            }
+            // Hide the modal and clear the reader element
+            scannerModal.classList.add('hidden');
+            qrReader.innerHTML = "";
+            // Reset the file input to allow scanning the same file again
+            fileScannerInput.value = '';
+        }
+    });
+    </script>
+
+</body>
+</html>
