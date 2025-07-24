@@ -3,13 +3,17 @@
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-    <title>QR & Barcode Scanner</title>
+    <title>QR & Barcode Scanner with Cropping</title>
     
     <!-- Tailwind CSS for styling -->
     <script src="https://cdn.tailwindcss.com"></script>
     
     <!-- Barcode Scanner Library -->
     <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
+    
+    <!-- Cropper.js for image cropping -->
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.5.13/cropper.min.css" rel="stylesheet">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.5.13/cropper.min.js"></script>
     
     <!-- Font Awesome for icons -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
@@ -21,17 +25,20 @@
             font-family: 'Inter', sans-serif;
             background-color: #f8fafc; /* slate-50 */
         }
-        /* Style for the video feed container to ensure the border is visible */
-        #qr-reader {
+        /* Styling for the scanner/cropper container */
+        #reader-container {
             border: 2px solid #e2e8f0; /* slate-200 */
             border-radius: 8px;
-            /* Ensure the uploaded image is contained within the reader element */
             background-color: #f1f5f9; /* slate-100 */
+            min-height: 300px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
         }
-        #qr-reader img {
+        /* Ensure the Cropper.js image doesn't exceed the container */
+        #image-to-crop {
+            display: block;
             max-width: 100%;
-            max-height: 100%;
-            object-fit: contain;
         }
         /* Simple animation for the modal */
         #scannerModal {
@@ -43,20 +50,17 @@
 
     <div class="text-center p-8">
         <h1 class="text-3xl md:text-4xl font-bold text-slate-800 mb-4">QR & Barcode Scanner</h1>
-        <p class="text-slate-500 mb-8">Scan a QR code or barcode using your camera or by uploading an image.</p>
+        <p class="text-slate-500 mb-8">Scan using your camera or upload an image to crop and scan.</p>
 
         <!-- Container for the action buttons -->
         <div class="flex flex-col sm:flex-row justify-center gap-4">
-            <!-- Button to open the camera scanner -->
             <button id="startCameraScanBtn" class="bg-teal-600 hover:bg-teal-700 text-white font-bold py-3 px-6 rounded-lg shadow-md hover:shadow-lg transition-all duration-300 transform hover:-translate-y-1 flex items-center justify-center">
                 <i class="fas fa-camera mr-2"></i> Scan with Camera
             </button>
-            <!-- Button to trigger file upload -->
             <button id="startFileScanBtn" class="bg-sky-600 hover:bg-sky-700 text-white font-bold py-3 px-6 rounded-lg shadow-md hover:shadow-lg transition-all duration-300 transform hover:-translate-y-1 flex items-center justify-center">
                 <i class="fas fa-image mr-2"></i> Scan from Image
             </button>
         </div>
-        <!-- Hidden file input that will be triggered by the button -->
         <input type="file" id="fileScannerInput" class="hidden" accept="image/*">
 
         <!-- Area to display the result of the scan -->
@@ -66,23 +70,29 @@
         </div>
     </div>
 
-    <!-- Barcode Scanner Modal -->
+    <!-- Scanner & Cropper Modal -->
     <div id="scannerModal" class="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center p-4 z-50 hidden">
-        <div class="bg-white rounded-lg shadow-xl w-full max-w-lg p-6 relative">
-            <!-- Close button for the modal -->
-            <button id="closeScannerBtn" class="absolute top-4 right-4 text-slate-400 hover:text-slate-600 text-3xl font-bold">&times;</button>
+        <div class="bg-white rounded-lg shadow-xl w-full max-w-2xl p-6 relative">
+            <button id="closeScannerBtn" class="absolute top-4 right-4 text-slate-400 hover:text-slate-600 text-3xl font-bold z-10">&times;</button>
             
             <div class="flex justify-between items-center mb-4">
                 <h3 id="modalTitle" class="text-xl font-bold text-slate-800">Scan Code</h3>
             </div>
             
-            <!-- Container for the camera feed or uploaded image -->
-            <div id="qr-reader-container" class="w-full">
-                <div id="qr-reader"></div>
+            <div id="reader-container">
+                <!-- This div will hold either the camera feed or the image for cropping -->
+                <div id="qr-reader" class="w-full"></div>
             </div>
             
             <!-- Status message area -->
             <p id="scannerStatus" class="text-center text-sm text-slate-600 mt-4 h-5"></p>
+            
+            <!-- Button specific to cropping -->
+            <div id="crop-actions" class="text-center mt-4 hidden">
+                 <button id="scanCroppedBtn" class="bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-5 rounded-lg shadow-md transition-all">
+                    <i class="fas fa-check mr-2"></i> Scan Cropped Area
+                </button>
+            </div>
         </div>
     </div>
 
@@ -99,107 +109,126 @@
         const scanResultContainer = document.getElementById('scanResultContainer');
         const scanResult = document.getElementById('scanResult');
         const qrReader = document.getElementById('qr-reader');
-        
-        // --- Scanner Instance ---
-        // This creates a new instance of the barcode scanner
-        const html5QrCode = new Html5Qrcode("qr-reader");
+        const cropActions = document.getElementById('crop-actions');
+        const scanCroppedBtn = document.getElementById('scanCroppedBtn');
+
+        // --- State Variables ---
+        let html5QrCode = null;
+        let cropper = null;
 
         // --- Event Listeners ---
         startCameraScanBtn.addEventListener('click', startCameraScanner);
         startFileScanBtn.addEventListener('click', () => fileScannerInput.click());
         fileScannerInput.addEventListener('change', handleFileSelect);
-        closeScannerBtn.addEventListener('click', stopScanner);
+        closeScannerBtn.addEventListener('click', stopAll);
+        scanCroppedBtn.addEventListener('click', scanCroppedImage);
 
         /**
-         * This function is called when a barcode is successfully scanned.
-         * @param {string} decodedText - The text decoded from the barcode.
-         * @param {object} decodedResult - The full result object from the scanner library.
+         * Initializes the Html5Qrcode scanner instance if it doesn't exist.
+         */
+        function initializeScanner() {
+            if (!html5QrCode) {
+                html5QrCode = new Html5Qrcode("qr-reader");
+            }
+        }
+
+        /**
+         * Handles successful scan results.
          */
         function onScanSuccess(decodedText, decodedResult) {
             scanResult.textContent = decodedText;
             scanResultContainer.classList.remove('hidden');
             scannerStatus.textContent = `Success!`;
-            
-            // Stop the scanner and close the modal after a short delay
-            setTimeout(() => {
-                stopScanner();
-            }, 1000);
+            setTimeout(stopAll, 1000);
         }
 
         /**
-         * This function handles the file selection for image-based scanning.
-         * @param {Event} e - The file input change event.
+         * Handles the selection of a file for cropping and scanning.
          */
         function handleFileSelect(e) {
             const file = e.target.files[0];
-            if (!file) {
-                return;
-            }
-            
-            // Show the modal and set the title for image scanning
-            scannerModal.classList.remove('hidden');
-            modalTitle.textContent = "Scanning Image";
-            scannerStatus.textContent = "Processing image...";
+            if (!file) return;
 
-            // Use the scanFile method from the library
-            html5QrCode.scanFile(file, true) // true = show the image in the reader
-            .then(onScanSuccess)
-            .catch(err => {
-                // Handle errors, like no barcode being found
-                scannerStatus.textContent = `Error: ${err.message || 'No QR code or barcode found.'}`;
-                console.error(`Error scanning file. ${err}`);
-                // Close the modal after a delay so the user can read the error
-                setTimeout(() => {
-                    stopScanner();
-                }, 2500);
+            const reader = new FileReader();
+            reader.onload = function(event) {
+                // Prepare the modal for cropping
+                modalTitle.textContent = "Crop to Scan";
+                qrReader.innerHTML = `<img id="image-to-crop" src="${event.target.result}">`;
+                scannerModal.classList.remove('hidden');
+                cropActions.classList.remove('hidden');
+
+                const image = document.getElementById('image-to-crop');
+                // Initialize Cropper.js
+                cropper = new Cropper(image, {
+                    aspectRatio: 0, // Free crop ratio
+                    viewMode: 1,    // Restrict crop box to be within the canvas
+                    background: false,
+                });
+            };
+            reader.readAsDataURL(file);
+        }
+
+        /**
+         * Scans the area of the image selected with the cropper tool.
+         */
+        function scanCroppedImage() {
+            if (!cropper) return;
+
+            scannerStatus.textContent = "Processing cropped image...";
+            // Get the cropped image data as a canvas
+            const canvas = cropper.getCroppedCanvas();
+            // Convert canvas to a Blob
+            canvas.toBlob(function(blob) {
+                const file = new File([blob], "cropped.png", { type: 'image/png' });
+                initializeScanner();
+                // Use the scanner library to scan the new cropped file
+                html5QrCode.scanFile(file, false) // false = don't show the image again
+                    .then(onScanSuccess)
+                    .catch(err => {
+                        scannerStatus.textContent = `Error: No code found in selection.`;
+                    });
             });
         }
 
         /**
-         * Starts the live camera barcode scanner.
+         * Starts the live camera scanner.
          */
         function startCameraScanner() {
-            // Show the modal and set the title for camera scanning
-            scannerModal.classList.remove('hidden');
+            initializeScanner();
             modalTitle.textContent = "Scan with Camera";
+            scannerModal.classList.remove('hidden');
             scannerStatus.textContent = "Requesting camera access...";
 
-            // Configuration for the scanner
-            const config = { 
-                fps: 10, // Frames per second to scan
-                qrbox: { width: 250, height: 150 } // The scanning box dimensions
-            };
-
-            // Start the scanner using the device's rear camera
-            html5QrCode.start(
-                { facingMode: "environment" }, // Use 'user' for front camera
-                config,
-                onScanSuccess,
-                (errorMessage) => { /* Be quiet on non-fatal scan failures */ }
-            ).then(() => {
-                scannerStatus.textContent = "Point camera at a QR code or barcode";
-            }).catch(err => {
-                // Handle critical errors like camera not found or permissions denied
-                scannerStatus.textContent = `Error: ${err.message}`;
-                console.error("Could not start camera scanner", err);
-            });
+            const config = { fps: 10, qrbox: { width: 250, height: 150 } };
+            html5QrCode.start({ facingMode: "environment" }, config, onScanSuccess, () => {})
+                .then(() => {
+                    scannerStatus.textContent = "Point camera at a QR code or barcode";
+                })
+                .catch(err => {
+                    scannerStatus.textContent = `Error: ${err.message}`;
+                });
         }
 
         /**
-         * Stops any active scanner and hides the modal.
+         * Stops all processes (camera or cropper) and resets the UI.
          */
-        function stopScanner() {
-            // Check if the scanner is running before trying to stop it
-            if (html5QrCode.isScanning) {
-                html5QrCode.stop().catch(err => {
-                    console.error("Failed to stop scanner cleanly.", err);
-                });
+        function stopAll() {
+            // Stop camera scanner if it's running
+            if (html5QrCode && html5QrCode.isScanning) {
+                html5QrCode.stop().catch(err => console.error("Error stopping scanner.", err));
             }
-            // Hide the modal and clear the reader element
+            // Destroy cropper instance if it exists
+            if (cropper) {
+                cropper.destroy();
+                cropper = null;
+            }
+            
+            // Reset and hide the modal and related elements
             scannerModal.classList.add('hidden');
+            cropActions.classList.add('hidden');
             qrReader.innerHTML = "";
-            // Reset the file input to allow scanning the same file again
-            fileScannerInput.value = '';
+            scannerStatus.textContent = "";
+            fileScannerInput.value = ''; // Allow selecting the same file again
         }
     });
     </script>
