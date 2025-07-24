@@ -88,7 +88,7 @@
                 <table class="w-full text-sm text-left">
                     <thead class="bg-slate-50 text-slate-600 uppercase">
                         <tr>
-                            <th scope="col" class="px-6 py-3 rounded-l-lg">Product Name</th>
+                            <th scope="col" class="px-6 py-3 rounded-l-lg">Assigned To</th>
                             <th scope="col" class="px-6 py-3">IMEI</th>
                             <th scope="col" class="px-6 py-3 rounded-r-lg text-right">Actions</th>
                         </tr>
@@ -137,7 +137,7 @@
             <h3 class="text-xl font-bold text-slate-800 mb-2">Assign Name</h3>
             <p class="text-slate-500 mb-4">Enter a name for the scanned IMEI.</p>
             <p class="font-mono bg-slate-100 p-2 rounded text-center mb-4" id="imeiToName"></p>
-            <input type="text" id="itemNameInput" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500" placeholder="e.g., Samsung A55 Black">
+            <input type="text" id="itemNameInput" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500" placeholder="e.g., Joseph, Customer XYZ">
             <div class="flex justify-end gap-3 mt-4">
                 <button id="cancelNameBtn" class="bg-slate-200 hover:bg-slate-300 text-slate-800 font-bold py-2 px-4 rounded-lg">Cancel</button>
                 <button id="saveNameBtn" class="bg-teal-600 hover:bg-teal-700 text-white font-bold py-2 px-4 rounded-lg">Save</button>
@@ -248,22 +248,18 @@
             const hasItems = scannedItems.length > 0;
             elements.exportPdfBtn.disabled = !hasItems;
             elements.clearListBtn.disabled = !hasItems;
-            
-            // Check for Web Share API support for files
             const canShareFiles = navigator.share && navigator.canShare && navigator.canShare({ files: [new File([], 'test.pdf', { type: 'application/pdf' })] });
             elements.sharePdfBtn.disabled = !hasItems || !canShareFiles;
         }
 
-        function addItem(imei, name = 'Unnamed Device') {
-            // Prevent duplicate IMEIs
+        function addItem(imei, name = 'Unnamed') {
             if (scannedItems.some(item => item.imei === imei)) {
                 console.warn(`Duplicate IMEI ignored: ${imei}`);
-                return;
+                return false; // Indicate that item was not added
             }
             const newItem = { id: Date.now(), name, imei };
             scannedItems.push(newItem);
-            saveToStorage();
-            renderItems();
+            return true; // Indicate success
         }
 
         function handleItemAction(e) {
@@ -289,18 +285,14 @@
         }
 
         // --- SCANNING & CROPPING LOGIC ---
-        function initializeScanner() {
-            if (!html5QrCode) {
-                html5QrCode = new Html5Qrcode("qr-reader");
-            }
-        }
-
         function onScanSuccess(decodedText) {
-            stopAllScanners();
-            itemToEditId = null; // It's a new item, not an edit
-            elements.imeiToName.textContent = decodedText;
-            elements.itemNameInput.value = '';
-            openModal(elements.assignNameModal);
+            stopAllScanners().then(() => {
+                itemToEditId = null;
+                elements.imeiToName.textContent = decodedText;
+                elements.itemNameInput.value = '';
+                elements.itemNameInput.placeholder = 'e.g., Joseph, Customer XYZ';
+                openModal(elements.assignNameModal);
+            });
         }
 
         function handleFileSelect(e) {
@@ -328,12 +320,13 @@
             elements.scannerStatus.innerHTML = 'Simulating AI scan to find all "IMEI 1" codes...';
             openModal(elements.scannerModal);
             await new Promise(resolve => setTimeout(resolve, 2500));
+            // MOCK AI RESPONSE with UNIQUE IMEIs
             return {
                 success: true,
                 data: [
-                    { name: "SM-A055F/DS", imei1: "355234853489579" },
-                    { name: "SM-A055F/DS", imei1: "355234853489579" },
-                    { name: "SM-A055F/DS", imei1: "355234853489579" }
+                    { name: "Unnamed", imei1: "355234853489579" },
+                    { name: "Unnamed", imei1: "358585943489573" },
+                    { name: "Unnamed", imei1: "355234853489578" } // Made this one unique
                 ]
             };
         }
@@ -341,14 +334,18 @@
         async function startBulkMode() {
             closeModal(elements.scanModeModal);
             const result = await performAIBulkScan(currentFile);
-            
+            let itemsAddedCount = 0;
             if (result.success && result.data.length > 0) {
                 result.data.forEach(item => {
-                    addItem(item.imei1, item.name);
+                    if (addItem(item.imei1, item.name)) {
+                        itemsAddedCount++;
+                    }
                 });
-                elements.scannerStatus.textContent = `Success! Added ${result.data.length} items.`;
+                saveToStorage();
+                renderItems();
+                elements.scannerStatus.textContent = `Success! Added ${itemsAddedCount} new items.`;
             } else {
-                elements.scannerStatus.textContent = 'AI Scan failed or no IMEI 1s found.';
+                elements.scannerStatus.textContent = 'AI Scan failed or no new IMEI 1s found.';
             }
             setTimeout(stopAllScanners, 2000);
         }
@@ -358,8 +355,8 @@
             elements.scannerStatus.textContent = "Processing cropped image...";
             cropper.getCroppedCanvas().toBlob(function(blob) {
                 const file = new File([blob], "cropped.png", { type: 'image/png' });
-                initializeScanner();
-                html5QrCode.scanFile(file, false)
+                const scanner = new Html5Qrcode("qr-reader");
+                scanner.scanFile(file, false)
                     .then(onScanSuccess)
                     .catch(err => {
                         elements.scannerStatus.textContent = `Error: No code found in selection.`;
@@ -368,30 +365,44 @@
         }
 
         function startCameraScanner() {
-            initializeScanner();
-            elements.modalTitle.textContent = "Scan with Camera";
-            openModal(elements.scannerModal);
-            elements.scannerStatus.textContent = "Requesting camera access...";
-            const config = { fps: 10, qrbox: { width: 250, height: 150 } };
-            html5QrCode.start({ facingMode: "environment" }, config, onScanSuccess, () => {})
-                .catch(err => {
-                    elements.scannerStatus.textContent = `Error: ${err.message}`;
-                });
+            stopAllScanners().then(() => {
+                html5QrCode = new Html5Qrcode("qr-reader");
+                elements.modalTitle.textContent = "Scan with Camera";
+                openModal(elements.scannerModal);
+                elements.scannerStatus.textContent = "Requesting camera access...";
+                const config = { fps: 10, qrbox: { width: 250, height: 150 } };
+                html5QrCode.start({ facingMode: "environment" }, config, onScanSuccess, () => {})
+                    .catch(err => {
+                        elements.scannerStatus.textContent = `Error: ${err.message}`;
+                    });
+            });
         }
 
         function stopAllScanners() {
-            if (html5QrCode && html5QrCode.isScanning) {
-                html5QrCode.stop().catch(err => console.error("Error stopping scanner.", err));
-            }
-            if (cropper) {
-                cropper.destroy();
-                cropper = null;
-            }
-            closeModal(elements.scannerModal);
-            elements.cropActions.classList.add('hidden');
-            elements.qrReader.innerHTML = "";
-            elements.scannerStatus.textContent = "";
-            elements.fileScannerInput.value = '';
+            return new Promise((resolve) => {
+                const cleanup = () => {
+                    if (cropper) {
+                        cropper.destroy();
+                        cropper = null;
+                    }
+                    closeModal(elements.scannerModal);
+                    elements.cropActions.classList.add('hidden');
+                    elements.qrReader.innerHTML = "";
+                    elements.scannerStatus.textContent = "";
+                    elements.fileScannerInput.value = '';
+                    html5QrCode = null; // Reset the scanner instance
+                    resolve();
+                };
+
+                if (html5QrCode && html5QrCode.isScanning) {
+                    html5QrCode.stop().then(cleanup).catch(err => {
+                        console.error("Error stopping scanner, forcing cleanup.", err);
+                        cleanup();
+                    });
+                } else {
+                    cleanup();
+                }
+            });
         }
         
         function handleSaveName() {
@@ -416,7 +427,7 @@
             const doc = new jsPDF();
             doc.text("Scanned IMEI List", 14, 16);
             doc.autoTable({
-                head: [['Product Name', 'IMEI']],
+                head: [['Assigned To', 'IMEI']],
                 body: scannedItems.map(item => [item.name, item.imei]),
                 startY: 20,
             });
@@ -448,7 +459,9 @@
                     });
                 } catch (error) {
                     console.error('Error sharing PDF:', error);
-                    alert('Could not share the file. Error: ' + error.message);
+                    if (error.name !== 'AbortError') {
+                       alert('Could not share the file. Error: ' + error.message);
+                    }
                 }
             } else {
                 alert('Sharing files is not supported on this browser.');
